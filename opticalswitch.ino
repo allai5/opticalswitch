@@ -25,13 +25,13 @@ void setup() {
       status = check(port);
       if (status == 0) {
         digitalWrite(camera, HIGH);
-        delay(0.1); //change l8r!!
+        delay(1); //change l8r!!
         digitalWrite(camera, LOW);
-        delay(0.1); //add time for camera to take picture
-        Serial.print(port);
+        delay(1); //add time for camera to take picture
+        /*Serial.print(port);
         Serial.print(" GO");
         Serial.print(" CAM");
-        Serial.print("\n");
+        Serial.print("\n");*/
       } else {
         Serial.print(port);
         Serial.print(" error");
@@ -41,8 +41,8 @@ void setup() {
     break;    
   }
 
-  Serial.println(""); //spacing
-  Serial.println("END");
+  //Serial.println(""); //spacing
+  //Serial.println("END");
   /*
   for (int i = 0; i < 4; i++) {
     Serial.print(data_out[i]); 
@@ -65,25 +65,33 @@ void loop() {
 
 int check(int port) {
   //Serial.println("asdfa");
+  boolean flag = false;
   int internalStatus = 0;
   for (int j = 0; j < 30; j++) { //keep trying to get status = 0
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 3000; i++) {
       //Serial.println(digitalRead(busy));
       if (digitalRead(busy) == 1){
           sendData(port);
+          flag = true;
           break;
       } else {
-          delay(0.1);
+          delay(0.05);
       }
     }
     delay(0.1);
-    for (int i = 0; i < 300; i++) {
-      if (digitalRead(busy) == 1){
-          internalStatus = readData();
-          break;
-      } else {
-          delay(0.1);
-      }
+    if (flag == true) {
+      delay(0.05);
+      for (int i = 0; i < 3000; i++) {
+        if (digitalRead(busy) == 1){
+            internalStatus = readData();
+            break;
+        } else {
+            delay(0.05);
+        }
+      }      
+    } else {
+        delay(0.1);
+        internalStatus = 1;
     }
 
     if (internalStatus == 0) {
