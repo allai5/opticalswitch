@@ -1,16 +1,16 @@
 #include <Wire.h>
 
+int busy = 7; //0 is busy, 1 is not busy
 int camera = 2;
 int address = 0x73; //device address 115
 int channel = 0x78; //set output channel (command)
-int busy = 7; //0 is busy, 1 is not busy
 byte data_out[4];
 byte data_in[4];
-int numports = 30;
-static int status = 0;
-static int crclow = 0, crchigh = 0;
+static int crclow =0, crchigh = 0; 
 
 void setup() {
+  int status = 0;
+
   pinMode(camera,OUTPUT);
   pinMode(busy, INPUT);
   Wire.begin();
@@ -22,20 +22,12 @@ void setup() {
 
   while (status == 0) {
     for (int port = 1; port < 65; port++) {
-      if (digitalRead(busy) == 1){
-        sendData(port);
-      }
-      delay(9);
-      //Serial.println(digitalRead(busy));
-      if (digitalRead(busy) == 1) {
-        readData();
-      }
-      delay(1);
-      if (digitalRead(busy) == 1 && status == 0) {
+      status = check(port);
+      if (status == 0) {
         digitalWrite(camera, HIGH);
-        delay(1);
+        delay(0.1); //change l8r!!
         digitalWrite(camera, LOW);
-        delay(10); //add time for camera to take picture
+        delay(0.1); //add time for camera to take picture
         Serial.print(port);
         Serial.print(" GO");
         Serial.print(" CAM");
@@ -44,16 +36,15 @@ void setup() {
         Serial.print(port);
         Serial.print(" error");
         Serial.print("\n");
-      }
-      
+      }      
     }
     break;    
   }
 
   Serial.println(""); //spacing
   Serial.println("END");
-  
-  /*for (int i = 0; i < 4; i++) {
+  /*
+  for (int i = 0; i < 4; i++) {
     Serial.print(data_out[i]); 
     Serial.print(" ");
     Serial.print("\n");
@@ -72,18 +63,53 @@ void loop() {
 
 }
 
-void readData() {
-  Wire.requestFrom(address, 4);
-  if (4 <= Wire.available()) {
+int check(int port) {
+  //Serial.println("asdfa");
+  int internalStatus = 0;
+  for (int j = 0; j < 30; j++) { //keep trying to get status = 0
+    for (int i = 0; i < 300; i++) {
+      //Serial.println(digitalRead(busy));
+      if (digitalRead(busy) == 1){
+          sendData(port);
+          break;
+      } else {
+          delay(0.1);
+      }
+    }
+    delay(0.1);
+    for (int i = 0; i < 300; i++) {
+      if (digitalRead(busy) == 1){
+          internalStatus = readData();
+          break;
+      } else {
+          delay(0.1);
+      }
+    }
+
+    if (internalStatus == 0) {
+      break;
+    }
+  }
+  return internalStatus;
+}
+
+int readData() {
+  int status = 0;
+  Wire.requestFrom(address, 4, false);
+  //Serial.println(Wire.requestFrom(address, 4));
+  if (Wire.available() == 4) {
     for (int i = 0; i < 4; i++) {
       data_in[i] = Wire.read();
     } 
+  } else {
+    Serial.print("WRONG BYTES");
   }
-
   status = data_in[1];
+  return status;
 }
 
 void sendData(int port) {
+  //Serial.println("asdfasd");
   int arr[3] = {230, channel, port};
   crc16(arr);
   data_out[0] = channel;
