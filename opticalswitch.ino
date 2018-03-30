@@ -1,6 +1,21 @@
+/*Arduino is an open source platform commonly used across the world to build prototypes electronics projects. 
+ * Arduino consists of a physical board (the microcontroller) and the integrated desktop environment 
+ * (Arduino IDE) used to write and upload code to the microcontroller. The microcontroller is able to read and write 
+ * digital/analog signals to devices in the real world through digital/analog pins. Common applications include reading from sensors,
+ * The Arduino does not need a separate programmer in order to upload code - only a USB cable is needed.
+ 
+ * This code is used to run on the Arduino Uno to synchronize the camera and the optical switch. First, the Arduino
+ * sends an I2C write command to the first optical fiber and reads the I2C read response to see if communication between the fiber and the Arduino
+ * is successful. The 2nd byte in the I2C read response determines if communication is successful or not.  
+ * Once communication is established to be successful, the Arduino reads the optical switch's BUSY signal, so that the Arduino 
+ * knows when to send the digital signal to the camera to take a picture (the Arduino waits until it is not busy to tell the camera to take a picture).
+ * After the camera takes a picture, the Arduino switches to the next optical fiber and repeats again until it reaches the last fiber.
+ * Appropriate delays are used to ensure the validity of the data that the Arduino receives from the optical switch.
+*/
+
 #include <Wire.h> //this is the Arduino library used for I2C communication
 
-int camera = 2; //
+int camera = 2; //set digital pin to write digital signals to camera
 int address = 0x73; //device address 115
 int channel = 0x78; //set output channel (command)
 int busy = 7; //BUSY signal from optical switch to let us know when to send the next command
@@ -9,15 +24,18 @@ byte data_in[4]; //byte array of data read from optical switch
 static int status = 0; //whether or not sent data was a success or not (0 means success, 1 means failure)....
 static int crclow = 0, crchigh = 0; //two bytes for the CRC16 function (checksum)
 
+
 void setup() {
   pinMode(camera,OUTPUT); //we want to send an OUTPUT signal to the camera to take a picture
   pinMode(busy, INPUT); //we want to read the "busy" INPUT signal to see if we can send the command
   Wire.begin(); //initialize I2C communication 
   Serial.begin(9600); //initialize serial monitor (for debugging and tracking purposes)
-  /*readData();
+  
+  //initialize the optical switch setup
+  readData();
   delay(10);
   sendData(0x05); //port number
-  delay(10);*/
+  delay(10);
 
   while (status == 0) { //while the sent data was successful
     for (int port = 1; port < 65; port++) { //64 ports in the optical switch
@@ -67,12 +85,19 @@ void setup() {
   }  */
 }
 
+void loop() {
+  
+}
+
 void readData() {
   Wire.requestFrom(address, 4); //request 4 bytes from optical switch
   if (4 <= Wire.available()) {
     for (int i = 0; i < 4; i++) {
       data_in[i] = Wire.read(); //populate data_in array with 4 bytes
+      //Serial.println(data_in[i]);
     } 
+  } else {
+      Serial.println("not good");
   }
 
   status = data_in[1];  //2nd byte is the status
