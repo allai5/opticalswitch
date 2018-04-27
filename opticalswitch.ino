@@ -11,16 +11,29 @@
  * knows when to send the digital signal to the camera to take a picture (the Arduino waits until it is not busy to tell the camera to take a picture).
  * After the camera takes a picture, the Arduino switches to the next optical fiber and repeats again until it reaches the last fiber.
  * Appropriate delays are used to ensure the validity of the data that the Arduino receives from the optical switch.
+ * 
+ * NOTE: Carriage Return must be enabled on the Arduino serial interface. "scan" refers to the entire process of checking whether the optical switch module is busy, 
+ * sending a signal to the camera to take a picture of the currently selected port, and then switching to the next port
+ * ______________________________________________________________________________________________________________________________________________________________
+ * 
+ * KEY:
+ * "1" = scan through all the ports available on the optical switch once
+ * "2,x" = scan only port "x" --> e.g. "2,1" = scan port 1 once
+ * "3,y,z" = scan ports "y" through "z" --> e.g. "3,1,50" = scan ports 1 through 50 (and including!)
+ * 
+ * Add a "1" after the command to set the command to run continously
+ * e.g. "1" = scan through all the ports once, "1,1" = scan through all the ports continuously until the next serial command
 */
 
 #include <Wire.h> //this is the Arduino library used for I2C communication
 
 int num_ports = 64; //number of ports in optical switch
-int single_port = 0;
 int camera = 2; //set digital pin to write digital signals to camera
 int address = 0x73; //device address 115
 int channel = 0x78; //set output channel (command)
 int busy = 7; //BUSY signal from optical switch to let us know when to send the next command
+int time_before = 10; //time after HIGH signal sent to camera
+int time_after = 1;//time after LOW signal sent to camera
 byte data_out[4]; //byte array of command to send to optical switch
 byte data_in[4]; //byte array of data read from optical switch
 static int status = 0; //whether or not sent data was a success or not (0 means success, 1 means failure)....
@@ -31,67 +44,141 @@ void setup() {
   pinMode(busy, INPUT); //we want to read the "busy" INPUT signal to see if we can send the command
   Wire.begin(); //initialize I2C communication 
   Serial.begin(9600); //initialize serial monitor (for debugging and tracking purposes)
+  Serial.print("START");
+  Serial.print("\n");
+  Serial.setTimeout(5);
   //initialize the optical switch setup
   readData();
   delay(10);
   sendData(0x05); //port number
   delay(10);
+  //Serial.println(digitalRead(busy));
 }
 
 void loop() {
-  if (Serial.available() > 0) {    
-    int arr[5] = {};
-    String str = "";
-    int firstIndex = 0;
-    int lastIndex = 0;
-    String string = Serial.readString();
-    int j = 0;
-    
-    for (int i = 0; i < string.length(); i++) {
-      if(i == string.length() - 1) {
-        arr[j++] = (string.substring(firstIndex,i)).toInt();
+  while (Serial.available() > 0) { //after each iteration the program waits for the next Serial command, or it continuously loops depending on user input
+    int arr[5] = {}; //array to read in the command (stores the numbers separated by commas)
+    int firstIndex = 0; //1st index of substring separated by comma
+    int lastIndex = 0;//last index of substring separated by comma
+    String string = Serial.readString(); //read in the next line in the Serial buffer as a String
+    int j = 0; //counter for arr[]
+        
+    for (int i = 0; i < string.length(); i++) { //loop through the characters of the string to find commas
+      if(i == string.length() - 1) { //if at the index of the last character, store the substring from the character immediately following the last comma to the last character 
+        arr[j++] = (string.substring(firstIndex,i)).toInt(); //store substring as an integer in the array
         //Serial.println(string.substring(firstIndex,i));
       }
-      if(string.charAt(i) == ',') {
-        lastIndex = i;
-        arr[j++] = (string.substring(firstIndex,lastIndex)).toInt();
+      if(string.charAt(i) == ',') { //if the character is a comma
+        lastIndex = i; //set the last index of the substring
+        arr[j++] = (string.substring(firstIndex,lastIndex)).toInt(); //store substring as an integer in the array
         //Serial.println(string.substring(firstIndex,lastIndex));
-        firstIndex = i+1;
+        firstIndex = i+1; //reset the first index to be the character immediately after the comma
       }
     }
-
-    if(arr[0] == 1) {
-      Serial.println("Scanning all ports.");
-      scan_all();
-    } else if (arr[0] == 2) {
-      if (arr[1] >=1 && arr[1] <= num_ports) {
-        Serial.print("Scanning port ");
-        Serial.print(arr[1]);
-        Serial.println();
-        scan_one(arr[1]);        
-      } else {
-        Serial.println("Invalid port number, please try again.");
+    if(arr[0] == 1) { //if command for scanning through all ports
+      if(arr[1] == 1) { //if the user wants to scan through all the ports continuously
+        Serial.print("Scanning all ports continuously.");
+        Serial.print("\n");
+        while(Serial.available() <= 1) { //scan all ports while there is no new Serial command
+          scan_all(); 
+        }
+      } else { //if command for scanning through all the ports only once
+        //scan_all();
+        scan_all();
+        Serial.print("Scanned all ports.");
+        Serial.print("\n");
       }
-
-    } else if (arr[0] == 3) {
-      if (arr[1] >=1 && arr[1] <= num_ports && arr[2] >= arr[1] && arr[2] <= num_ports) {
-        Serial.print("Scanning from port ");
-        Serial.print(arr[1]);
-        Serial.print(" to ");
-        Serial.print(arr[2]);
-        Serial.println();
-        scan_range(arr[1],arr[2]);
-      } else {
-        Serial.println("Invalid port number(s), please try again.");
+      
+    } else if (arr[0] == 2) { //if command for scanning one port
+        if (arr[1] >=1 && arr[1] <= num_ports) { //if port is a valid port on the optical switch
+          scan_one(arr[1]); 
+          Serial.print("Scanned port ");
+          Serial.print(arr[1]);
+          Serial.print("\n");           
+        } else { //if port is not a valid port on the optical switch, print error statement
+          Serial.print("Invalid port number, please try again.");
+          Serial.print("\n");
+        }
+    } else if (arr[0] == 3) { //if command for scanning through range of ports
+      if (arr[1] >=1 && arr[1] <= num_ports && arr[2] >= arr[1] && arr[2] <= num_ports) { //if both the first and the last ports of the range are valid ports on the optical switch
+        if(arr[3] == 1) { //if the user wants to scan through the range of ports continuously
+          Serial.print("Scanning ports ");
+          Serial.print(arr[1]);
+          Serial.print(" to ");
+          Serial.print(arr[2]);
+          Serial.print(" continuously.");
+          Serial.print("\n"); 
+          while(Serial.available() <= 1) {
+            /*Serial.print("Scanning from port ");
+            Serial.print(arr[1]);
+            Serial.print(" to ");
+            Serial.print(arr[2]);
+            Serial.println();*/
+            scan_range(arr[1],arr[2]);
+          }
+          //break;
+          //break;
+        } else { //if the user wants to scan through the range of ports only once
+          scan_range(arr[1],arr[2]);
+          Serial.print("Scanned ports ");
+          Serial.print(arr[1]);
+          Serial.print(" to ");
+          Serial.print(arr[2]);
+          Serial.print("\n"); 
+        }
+      } else { //if the first and/or last ports of the range are not valid ports on the optical switch
+        Serial.print("Invalid port number(s), please try again.");
+        Serial.print("\n");
       }
-    } else {
-      Serial.println("Invalid command, please try again.");
+    } else if (arr[0] == 4) {
+        debug();
+    } else { //if Serial command received is not valid, print error statement
+      Serial.print("Invalid command, please try again.");
+      Serial.print("\n");
     }
+    Serial.print("done"); //print "Done" after every command output
+    Serial.print("\n");
+    Serial.flush();
+  } 
+}
 
-    Serial.println("done");
+void debug() {
+  sendData(0x01); //port number
+  delay(10);
+
+  Serial.print("BUSY: ");
+  if (digitalRead(busy) == 1) {
+    Serial.print("NO");
   } else {
-    
+    Serial.print("YES");
   }
+  Serial.print("\n");
+  for(int i = 0; i < sizeof(data_out); i++) {
+    Serial.print("#");
+    Serial.print(i+1);
+    Serial.print(" byte sent out: ");
+    Serial.print(data_out[i]);
+    Serial.print("\n");
+  }
+  readData();
+  delay(10);
+  Serial.print("\n");
+
+  for(int i = 0; i < sizeof(data_in); i++) {
+    Serial.print("#");
+    Serial.print(i+1);
+    Serial.print(" byte read in: ");
+    Serial.print(data_in[i]);
+    Serial.print("\n");
+  }
+  Serial.print("Communication status: ");
+  if (status == 0) {
+    Serial.print("successful");
+  } else {
+    Serial.print("failure");
+  }
+  Serial.print("\n");
+  
 }
 
 void readData() {
@@ -102,11 +189,10 @@ void readData() {
       //Serial.println(data_in[i]);
     } 
   } else {
-      Serial.println("not good");
+      Serial.print("Less than 4 bytes received");
+      Serial.print("\n");
   }
-
   status = data_in[1];  //2nd byte is the status
-  
 }
 
 void sendData(int port) {
@@ -139,6 +225,11 @@ void crc16(int data[]) {
    crchigh = crc&255;
 }
 
+
+void setcam_delay(int before, int after) {
+  time_before = before;
+  time_after = after;  
+}
 void scan_range(int first,int last) {
   while (status == 0) { //while the sent data was successful
     for (int port = first; port <= last; port++) { //number of ports in the optical switch
@@ -146,38 +237,35 @@ void scan_range(int first,int last) {
         sendData(port); //send command to port 
       }
       delay(9); //delay for 9 milliseconds
-      //Serial.println(digitalRead(busy));
       if (digitalRead(busy) == 1) { //after port is not busy again, read the data (last byte) to see if sent data was successful
         readData();
       }
       delay(1);
       if (digitalRead(busy) == 1 && status == 0) { //if sent data was successful and port not busy
         digitalWrite(camera, HIGH); //camera take picture
-        delay(1);
+        delay(time_before);
         digitalWrite(camera, LOW);
-        delay(10); //add time for camera to take picture
-        Serial.print(port); //print the port the optical switch is currently switched to
+        delay(time_after); //add time for camera to take picture
+        /*Serial.print(port); //print the port the optical switch is currently switched to
         Serial.print(" GO");
         Serial.print(" CAM");
-        Serial.print("\n");
+        Serial.print("\n");*/
       } else { 
         Serial.print(port);
-        Serial.print(" error");
-        Serial.print("\n");
+        Serial.print(" error ");
       }
-    }
-    break;    
+    }  
+    break;
   }
-  Serial.println(""); //spacing
 }
 
-void scan_all() {
+void scan_all() { //scan through all the ports at once
   while (status == 0) { //while the sent data was successful
     for (int port = 1; port <= num_ports; port++) { //number of ports in the optical switch
       if (digitalRead(busy) == 1){ //digitalRead(busy) = 0: port is busy | digitalReady(busy) = 1: port is busy
         sendData(port); //send command to port 
       }
-      delay(9); //delay for 9 milliseconds
+      delay(8); //delay for 8 milliseconds
       //Serial.println(digitalRead(busy));
       if (digitalRead(busy) == 1) { //after port is not busy again, read the data (last byte) to see if sent data was successful
         readData();
@@ -187,28 +275,26 @@ void scan_all() {
         digitalWrite(camera, HIGH); //camera take picture
         delay(1);
         digitalWrite(camera, LOW);
-        delay(10); //add time for camera to take picture
+        delay(1); //add time for camera to take picture
         Serial.print(port); //print the port the optical switch is currently switched to
         Serial.print(" GO");
         Serial.print(" CAM");
         Serial.print("\n");
       } else { 
         Serial.print(port);
-        Serial.print(" error");
-        Serial.print("\n");
+        Serial.print(" error ");
       }
     }
     break;    
   }
-  Serial.println(""); //spacing
 }
 
-void scan_one(int port) {
+void scan_one(int port) { //scan through one port
   while (status == 0) { //while the sent data was successful
     if (digitalRead(busy) == 1){ //digitalRead(busy) = 0: port is busy | digitalReady(busy) = 1: port is busy
       sendData(port); //send command to port 
     }
-    delay(9); //delay for 9 milliseconds
+    delay(8); //delay for 9 milliseconds
     //Serial.println(digitalRead(busy));
     if (digitalRead(busy) == 1) { //after port is not busy again, read the data (last byte) to see if sent data was successful
       readData();
@@ -218,16 +304,16 @@ void scan_one(int port) {
       digitalWrite(camera, HIGH); //camera take picture
       delay(1);
       digitalWrite(camera, LOW);
-      delay(10); //add time for camera to take picture
-      Serial.print(port); //print the port the optical switch is currently switched to
+      delay(1); //add time for camera to take picture
+      /*Serial.print(port); //print the port the optical switch is currently switched to
       Serial.print(" GO");
       Serial.print(" CAM");
-      Serial.print("\n");
+      Serial.print("\n");*/
     } 
     else { 
       Serial.print(port);
-      Serial.print(" error");
-      Serial.print("\n");
+      Serial.print(" error ");
+      //Serial.print("\n");
     }
     break;    
   }
